@@ -1,0 +1,62 @@
+name: Build Patch LCO
+
+on:
+  push:
+    branches:
+      - 'LDEV-5871-patch'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('loader/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
+
+    - name: Extract version
+      id: version
+      working-directory: loader
+      run: |
+        VERSION=$(grep '<property name="version"' build.xml | sed 's/.*value="//;s/".*//')
+        echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Building version: $VERSION"
+
+    - name: Build LCO
+      working-directory: loader
+      run: ant quick
+
+    - name: Find LCO file
+      id: lco
+      working-directory: loader/target
+      run: |
+        LCO_FILE=$(ls *.lco)
+        echo "LCO_FILE=$LCO_FILE" >> "$GITHUB_OUTPUT"
+        echo "Found: $LCO_FILE"
+
+    - name: Create or update release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: patch-${{ steps.version.outputs.VERSION }}
+        name: "LDEV-5871 Patch - ${{ steps.version.outputs.VERSION }}"
+        body: |
+          Patched Lucee build based on LTS ${{ steps.version.outputs.VERSION }}
+
+          Contains LDEV-5871 cacheprefix fix and commons-pool2 upgrade.
+
+          Rebase onto newer LTS releases and push to rebuild.
+        files: loader/target/${{ steps.lco.outputs.LCO_FILE }}
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
